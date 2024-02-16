@@ -32,7 +32,9 @@ public class PacTests : BaseTestForGame
         // assert
         Game.CurrentPacs.Should().NotBeNullOrEmpty();
         Game.CurrentPacs.Should().HaveCount(1);
-        Game.CurrentPacs[1].Should().Be(new Pac(ID, IS_MINE, GRID_X, GRID_Y, TYPE_ID, TURN_SPEED, ABILITY_COOLDOWN));
+
+        Game.TryGetPac((1, true), out var pac1).Should().BeTrue();
+        pac1.ShouldBe(IS_MINE, GRID_X, GRID_Y);
     }
 
     [Fact]
@@ -52,11 +54,12 @@ public class PacTests : BaseTestForGame
         Game.MyPacs.Should().HaveCount(2);
         Game.EnemyPacs.Should().HaveCount(2);
 
-        Game.TryGetPac(1, out var pac1).Should().BeTrue();
-        Game.TryGetPac(2, out var pac2).Should().BeTrue();
-        Game.TryGetPac(3, out var pac3).Should().BeTrue();
-        Game.TryGetPac(4, out var pac4).Should().BeTrue();
-        Game.TryGetPac(5, out _).Should().BeFalse();
+        Game.TryGetPac((1, true), out var pac1).Should().BeTrue();
+        Game.TryGetPac((2, false), out var pac2).Should().BeTrue();
+        Game.TryGetPac((3, false), out var pac3).Should().BeTrue();
+        Game.TryGetPac((4, true), out var pac4).Should().BeTrue();
+        Game.TryGetPac((5, false), out _).Should().BeFalse();
+        Game.TryGetPac((5, true), out _).Should().BeFalse();
 
         pac1.ShouldBe(true, 12, 2);
         pac2.ShouldBe(false, 2, 12);
@@ -79,6 +82,53 @@ public class PacTests : BaseTestForGame
 
         // assert
         numberOfMoves.Should().Be(expectedMoves);
+    }
+
+    [Fact]
+    public void DidNotMove_should_be_false_on_first_init()
+    {
+        // arrange
+        var pac = Empties.CreateEmptyPac() with { GridX = 5, GridY = 10 };
+
+        // act
+        pac.SetCurrentPosition(pac);
+
+        // assert
+        pac.DidNotMove.Should().BeFalse();
+    }
+
+    [Fact]
+    public void SetCurrentPosition_should_set_did_not_move_to_true_when_location_is_the_same()
+    {
+        // arrange
+        var pac = Empties.CreateEmptyPac() with { GridX = 5, GridY = 10 };
+        pac.SetCurrentPosition(pac);
+
+        var newPosition = new GridLocation(5, 10);
+
+        // act
+        pac.SetCurrentPosition(newPosition);
+
+        // assert
+        pac.DidNotMove.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(6, 10)]
+    [InlineData(5, 11)]
+    public void SetCurrentPosition_should_set_did_not_move_to_false_when_location_is_different(int gridX, int gridY)
+    {
+        // arrange
+        var pac = Empties.CreateEmptyPac() with { GridX = 5, GridY = 10 };
+        pac.SetCurrentPosition(pac);
+
+        var newPosition = new GridLocation(gridX, gridY);
+
+        // act
+        pac.SetCurrentPosition(newPosition);
+
+        // assert
+        pac.DidNotMove.Should().BeFalse();
     }
 
 

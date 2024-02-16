@@ -6,9 +6,7 @@ using System.IO;
 using System.Text;
 using System.Collections;
 using System.Collections.Generic;
-using NUnit.Framework.Internal;
-using System.ComponentModel;
-using NUnit.Framework.Internal.Execution;
+using System.Runtime.CompilerServices;
 
 /**
  * Grab the pellets as fast as you can!
@@ -20,17 +18,22 @@ class Player
         var game = GameFactory.BuildGame();
         game.ReadBoard();
 
+        int turn = 0;
+
         // game loop
         while (true)
         {
+            turn++;
             game.ReadTurnInfo();
             game.ReadCurrentPacState(game.CurrentTurn);
             game.ReadVisiblePellets();
 
-            var commands = game.IssueCommands();
+            var commands = game.IssueCommands(turn);
             var commandsAsIOSyntax = game.CommandsAsIOSyntax(commands);
 
+            Console.Error.WriteLine($"Issuing {commands.Count()} commands...");
             Console.Error.WriteLine(commandsAsIOSyntax);
+
             Console.WriteLine(commandsAsIOSyntax);
         }
     }
@@ -63,7 +66,7 @@ public class Game
 
     public Board Board = Empties.CreateEmptyBoard();
     public TurnInfo CurrentTurn = Empties.CreateEmptyTurnInfo();
-    public Dictionary<int, Pac> CurrentPacs = new();
+    public Dictionary<(int, bool), Pac> CurrentPacs = new();
     public List<Pellet> VisiblePellets = new();
 
     /// <summary>
@@ -112,7 +115,7 @@ public class Game
         for (int i = 0; i < turnInfo.VisiblePacCount; i++)
         {
             var inputs = _gameIO.ReadInput().Split(' ');
-            
+
             var id = int.Parse(inputs[0]); // pac number (unique within a team)
             var isMine = inputs[1] != "0"; // true if this pac is yours
             var gridX = int.Parse(inputs[2]); // position in the grid
@@ -120,16 +123,16 @@ public class Game
             var typeId = inputs[4]; // unused in wood leagues
             var turnSpeed = int.Parse(inputs[5]); // unused in wood leagues
             var abilityCooldown = int.Parse(inputs[6]); // unused in wood leagues
-
-            if (CurrentPacs.TryGetValue(id, out var existingPac))
+            
+            if (CurrentPacs.TryGetValue((id, isMine), out var existingPac))
             {
-                // TODO: Deal with current pac state
-                CurrentPacs.Remove(id);
+                CurrentPacs[existingPac.AsKey] = existingPac with { TypeId = typeId, TurnSpeed = turnSpeed, AbilityCoolDown = abilityCooldown };                                
+                continue;
             }
 
             var newPac = new Pac(id, isMine, gridX, gridY, typeId, turnSpeed, abilityCooldown);
 
-            CurrentPacs.Add(newPac.Id, newPac);
+            CurrentPacs.Add(newPac.AsKey, newPac);
         }
 
         Log(CurrentPacs.Values);
@@ -157,25 +160,46 @@ public class Game
             VisiblePellets.Add(pellet);
         }
 
-        Log(VisiblePellets);
+        //Log(VisiblePellets);
     }
 
-    public IEnumerable<ICommand> IssueCommands()
+    public IEnumerable<ICommand> IssueCommands(int turn)
     {
         var pacCommands = new List<ICommand>();
-        var viablePellets = VisiblePellets;
+        var viablePellets = new List<Pellet>(VisiblePellets);
 
         foreach (var myPac in MyPacs)
         {
+            if (SpeedCommand.IsActionable(myPac))
+            {
+                pacCommands.Add(new SpeedCommand(myPac.Id));
+                continue;
+            }
+            
+            /*
+            if (myPac.DidNotMove)
+            {
+                myPac.ResetMove();
+                continue;
+            }
+            */
+            
             var nearestPellet = viablePellets
                 .OrderByDescending(vp => vp.Value)
                 .ThenBy(myPac.MovesTo)
-                .First();
+                .FirstOrDefault();
+
+            if (nearestPellet is null)
+            {
+                break;
+            }
 
             pacCommands.Add(new MoveCommand(myPac.Id, nearestPellet.GridX, nearestPellet.GridY));
 
             viablePellets.Remove(nearestPellet);
         }
+
+        Log(pacCommands);
 
         return pacCommands;
     }
@@ -188,14 +212,14 @@ public class Game
         return commandsAsIOSyntax;
     }
 
-    public IEnumerable<Pac> MyPacs => SearchPacs(p => p.IsMine);
+    public IEnumerable<Pac> MyPacs => SearchPacs(p => p.IsMine && p.TypeId != "DEAD");
 
     public IEnumerable<Pac> EnemyPacs => SearchPacs(p => p.IsMine == false);
 
-    public IEnumerable<Pac> SearchPacs(Func<Pac,bool> find) => CurrentPacs.Values.Where(find);
+    public IEnumerable<Pac> SearchPacs(Func<Pac, bool> find) => CurrentPacs.Values.Where(find);
 
-    public bool TryGetPac(int id, out Pac pac)
-        => CurrentPacs.TryGetValue(id, out pac!);
+    public bool TryGetPac((int, bool) key, out Pac pac)
+        => CurrentPacs.TryGetValue(key, out pac!);
 
     private void Log(IEnumerable<IPrintable> items)
     {
@@ -236,7 +260,33 @@ public record TurnInfo(int MyScore, int OpponentsScore, int VisiblePacCount) : I
 
 public record Pac(int Id, bool IsMine, int GridX, int GridY, string TypeId, int TurnSpeed, int AbilityCoolDown)
     : IPrintable, ILocatable
-{
+{   
+    public (int Id, bool IsMine) AsKey => (Id, IsMine);
+
+    private ILocatable? _currentPosition = null;
+    private bool _didNotMove = false;
+
+    public void SetCurrentPosition(ILocatable location)
+    {
+        if (_currentPosition is null)
+        {
+            _currentPosition = location;
+            return;
+        }
+        
+        if (_currentPosition.GridX == location.GridX && _currentPosition.GridY == location.GridY)
+        {
+            _didNotMove = true;
+        }
+
+        _currentPosition = location;
+    }
+
+    public bool DidNotMove => _didNotMove;
+
+    public void ResetMove()
+        => _didNotMove = false;
+
     public int MovesTo(ILocatable locationToMoveTo)
     {
         return Math.Abs(GridX - locationToMoveTo.GridX) + Math.Abs(GridY - locationToMoveTo.GridY);
@@ -258,16 +308,40 @@ public record Pellet(int GridX, int GridY, int Value) : IPrintable, ILocatable
 
 public abstract record Command(string CommandType, int PacId) : ICommand
 {
+    public void Print(IGameIO gameIO)
+    {
+        gameIO.LogInfo(ToCommandSyntax());
+    }
+
     public abstract string ToCommandSyntax();
 }
 
-public record MoveCommand(int PacId, int GridX, int GridY) : Command("Move", PacId), ILocatable
+public record MoveCommand(int PacId, int GridX, int GridY) : Command("MOVE", PacId), ILocatable
 {
     public override string ToCommandSyntax()
     {
-        return $"MOVE {PacId} {GridX} {GridY}";
+        return $"{CommandType} {PacId} {GridX} {GridY}";
     }
 }
+
+public record SpeedCommand(int PacId) : Command("SPEED", PacId)
+{
+    internal static bool IsActionable(Pac myPac)
+        => myPac.TurnSpeed == 0;
+
+    public override string ToCommandSyntax()
+    {
+        return $"{CommandType} {PacId}";
+    }
+}
+
+public record SwitchAbilityCommand(int PacId, AbilityType AbilityType) : Command("SWITCH", PacId)
+{
+    public override string ToCommandSyntax()
+        => $"{CommandType} {PacId} {AbilityType}";
+}
+
+public record GridLocation(int GridX, int GridY) : ILocatable;
 
 public interface IPrintable
 {
@@ -290,17 +364,17 @@ public interface ILocatable
     int GridY { get; }
 }
 
-public interface ICommand
+public interface ICommand : IPrintable
 {
     int PacId { get; }
-    
+
     string CommandType { get; }
 
     string ToCommandSyntax();
 }
 
 public class GameConsoleIO : IGameIO
-{    
+{
     public void IssueInstruction(string instruction)
         => Console.WriteLine(instruction);
 
@@ -324,4 +398,11 @@ public static class Empties
 
     public static Pellet CreateEmptyPellet()
         => new(0, 0, 0);
+}
+
+public enum AbilityType
+{
+    ROCK,
+    SCISSORS,
+    PAPER
 }
