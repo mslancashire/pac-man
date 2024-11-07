@@ -28,6 +28,6 @@ internal class GameTestIO : IGameIO
     public string GetAllIssuedInstructions()
         => _writer.ToString();
 
-    public void LogInfo(string message)
-        => _logger.WriteLine(message);
+    public void LogInfo(string message, LogType logType)
+    => _logger.WriteLine($"{logType} => {message}.");
 }

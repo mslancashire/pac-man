@@ -1,0 +1,23 @@
+35 12                                       // (board width) (board height)
+###################################         // first line of the board
+###   # #   # # # # # #   # #   ###         // # => wall
+##### # ### # # # # # # ### # #####         //   => empty space
+#     # #                 # #     #         //
+# # ### # ### ####### ### # ### # #         //
+# #       ###         ###       # #         //
+### # # # ### ### ### ### # # # ###         //
+    # # #     #     #     # # #             //
+### # # # ### # # # # ### # # # ###         //
+###   # #   # # # # # #   # #   ###         //
+### ### ### # # ### # # ### ### ###         //
+###################################         // below lines are for a turn
+0 0                                         // (my score) (opponent score)
+4                                           // (visible pac count)
+0 1 2 4 ROCK 0 5                            // lines for pac count
+1 1 2 4 ROCK 0 5                            // (pac id) (is mine) (x) (y) (type id) (speed turns left) (ability cool down)
+2 1 2 4 ROCK 0 5                            // 
+0 0 2 4 ROCK 0 5                            //
+2                                           // (visible pellets count)
+2 5 10                                      // lines for pellet count
+2 6 1                                       // (x) (y) (score)
+                                            // end turn

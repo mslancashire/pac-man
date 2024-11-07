@@ -1,0 +1,111 @@
+31 16
+###############################
+# # # #   #   # #   #   # # # #
+# # # # # ### # # ### # # # # #
+#       #             #       #
+##### # ### ### ### ### # #####
+#     #     #     #     #     #
+# # # # # # # ### # # # # # # #
+# #   #   # #     # #   #   # #
+##### ### # # # # # # ### #####
+# #       #   # #   #       # #
+# # # # ### # ### # ### # # # #
+#     #     #     #     #     #
+### ##### # ####### # ##### ###
+      #   #         #   #      
+### # # # ### ### ### # # # ###
+###############################
+0 0
+5
+0 1 29 11 ROCK 0 0
+1 1 5 4 PAPER 0 0
+2 1 3 12 SCISSORS 0 0
+3 1 13 3 ROCK 0 0
+3 0 17 3 ROCK 0 0
+14
+28 11 1
+27 11 1
+26 11 1
+25 11 1
+29 10 1
+29 9 1
+5 3 1
+5 2 1
+5 1 1
+5 5 1
+5 6 1
+5 7 1
+5 8 1
+5 9 1
+
+
+Pellet of value 1 is located at 5 by 10.
+
+
+Pellet of value 1 is located at 5 by 11.
+
+
+Pellet of value 1 is located at 3 by 11.
+
+
+Pellet of value 1 is located at 3 by 10.
+
+
+Pellet of value 1 is located at 3 by 9.
+
+
+Pellet of value 1 is located at 3 by 13.
+
+
+Pellet of value 1 is located at 3 by 14.
+
+
+Pellet of value 1 is located at 12 by 3.
+
+
+Pellet of value 1 is located at 11 by 3.
+
+
+Pellet of value 1 is located at 10 by 3.
+
+
+Pellet of value 1 is located at 9 by 3.
+
+
+Pellet of value 1 is located at 14 by 3.
+
+
+Pellet of value 1 is located at 15 by 3.
+
+
+Pellet of value 1 is located at 16 by 3.
+
+
+Pellet of value 1 is located at 18 by 3.
+
+
+Pellet of value 1 is located at 19 by 3.
+
+
+Pellet of value 1 is located at 20 by 3.
+
+
+Pellet of value 1 is located at 21 by 3.
+
+
+Pellet of value 1 is located at 13 by 2.
+
+
+Pellet of value 1 is located at 13 by 1.
+
+
+Pellet of value 10 is located at 1 by 5.
+
+
+Pellet of value 10 is located at 3 by 5.
+
+
+Pellet of value 10 is located at 27 by 5.
+
+
+Pellet of value 10 is located at 29 by 5.

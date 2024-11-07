@@ -28,11 +28,13 @@ class Player
             game.ReadCurrentPacState(game.CurrentTurn);
             game.ReadVisiblePellets();
 
+            game.LogTurn(turn);
+
             var commands = game.IssueCommands(turn);
             var commandsAsIOSyntax = game.CommandsAsIOSyntax(commands);
 
-            Console.Error.WriteLine($"Issuing {commands.Count()} commands...");
-            Console.Error.WriteLine(commandsAsIOSyntax);
+            //Console.Error.WriteLine($"Issuing {commands.Count()} commands...");
+            //Console.Error.WriteLine(commandsAsIOSyntax);
 
             Console.WriteLine(commandsAsIOSyntax);
         }
@@ -42,7 +44,7 @@ class Player
 public static class GameFactory
 {
     public static Game BuildGame()
-        => BuildGame(new GameConsoleIO());
+        => BuildGame(new GameConsoleIO(LogType.All));
 
     public static Game BuildGame(IGameIO gameIO)
         => Game.CreateGame(gameIO);
@@ -50,7 +52,9 @@ public static class GameFactory
 
 public class Game
 {
-    public bool IsDebug = false;
+    public bool IsDebug = true;
+    public LogType EnabledLogs = LogType.All;
+
     private IGameIO _gameIO;
 
     public static Game CreateGame(IGameIO gameIO)
@@ -64,6 +68,7 @@ public class Game
     public void SetGameIO(IGameIO gameIO)
         => _gameIO = gameIO;
 
+    public IGameIO IO => _gameIO;
     public Board Board = Empties.CreateEmptyBoard();
     public TurnInfo CurrentTurn = Empties.CreateEmptyTurnInfo();
     public Dictionary<(int, bool), Pac> CurrentPacs = new();
@@ -76,13 +81,13 @@ public class Game
     /// </summary>
     public void ReadBoard()
     {
-        var inputs = _gameIO.ReadInput().Split(' ');
+        var inputs = IO.ReadInput().Split(' ');
         var board = new Board(int.Parse(inputs[0]), int.Parse(inputs[1]));
 
-        // build the board        
+        // build the board
         for (int i = 0; i < board.Height; i++)
         {
-            board.Rows.Add(_gameIO.ReadInput());
+            board.Rows.Add(IO.ReadInput());
         }
 
         Board = board;
@@ -96,8 +101,8 @@ public class Game
     /// </summary>
     public void ReadTurnInfo()
     {
-        var scores = _gameIO.ReadInput().Split(' ');
-        int visiblePacCount = int.Parse(_gameIO.ReadInput()); // all your pacs and enemy pacs in sight
+        var scores = IO.ReadInput().Split(' ');
+        int visiblePacCount = int.Parse(IO.ReadInput()); // all your pacs and enemy pacs in sight
 
         var turnInfo = new TurnInfo(int.Parse(scores[0]), int.Parse(scores[1]), visiblePacCount);
 
@@ -112,21 +117,23 @@ public class Game
     /// <param name="turnInfo"></param>
     public void ReadCurrentPacState(TurnInfo turnInfo)
     {
+        // TODO: Deal with clashing Pacs.
+
         for (int i = 0; i < turnInfo.VisiblePacCount; i++)
         {
-            var inputs = _gameIO.ReadInput().Split(' ');
+            var inputs = IO.ReadInput().Split(' ');
 
             var id = int.Parse(inputs[0]); // pac number (unique within a team)
             var isMine = inputs[1] != "0"; // true if this pac is yours
             var gridX = int.Parse(inputs[2]); // position in the grid
             var gridY = int.Parse(inputs[3]); // position in the grid
-            var typeId = inputs[4]; // unused in wood leagues
+            var typeId = Enum.Parse<AbilityType>(inputs[4]); // unused in wood leagues
             var turnSpeed = int.Parse(inputs[5]); // unused in wood leagues
             var abilityCooldown = int.Parse(inputs[6]); // unused in wood leagues
-            
+
             if (CurrentPacs.TryGetValue((id, isMine), out var existingPac))
             {
-                CurrentPacs[existingPac.AsKey] = existingPac with { TypeId = typeId, TurnSpeed = turnSpeed, AbilityCoolDown = abilityCooldown };                                
+                CurrentPacs[existingPac.AsKey] = existingPac with { TypeId = typeId, TurnSpeed = turnSpeed, AbilityCoolDown = abilityCooldown };
                 continue;
             }
 
@@ -147,13 +154,15 @@ public class Game
     /// <example>12 1 10</example>
     public void ReadVisiblePellets()
     {
+        // TODO: Read Visible Pellets to Board, then use Board in Command Issuer.
+
         VisiblePellets.Clear();
 
-        int visiblePelletCount = int.Parse(_gameIO.ReadInput()); // all pellets in sight
+        int visiblePelletCount = int.Parse(IO.ReadInput()); // all pellets in sight
 
         for (int i = 0; i < visiblePelletCount; i++)
         {
-            var inputs = _gameIO.ReadInput().Split(' ');
+            var inputs = IO.ReadInput().Split(' ');
 
             var pellet = new Pellet(int.Parse(inputs[0]), int.Parse(inputs[1]), int.Parse(inputs[2]));
 
@@ -166,40 +175,85 @@ public class Game
     public IEnumerable<ICommand> IssueCommands(int turn)
     {
         var pacCommands = new List<ICommand>();
-        var viablePellets = new List<Pellet>(VisiblePellets);
 
-        foreach (var myPac in MyPacs)
+        var pacsWithOutCommands = MyPacs;
+
+        //pacCommands.AddRange(IssueSpeedCommands(turn, pacsWithOutCommands));
+
+        pacsWithOutCommands = pacsWithOutCommands.Where(p => pacCommands.All(pc => pc.PacId != p.Id));
+
+        // calculate commands for closest super pellets
+        var viableSuperPellets = VisiblePellets.Where(p => p.Value > 1);
+        foreach (var supperPellet in viableSuperPellets)
         {
-            if (SpeedCommand.IsActionable(myPac))
-            {
-                pacCommands.Add(new SpeedCommand(myPac.Id));
-                continue;
-            }
-            
-            /*
-            if (myPac.DidNotMove)
-            {
-                myPac.ResetMove();
-                continue;
-            }
-            */
-            
-            var nearestPellet = viablePellets
-                .OrderByDescending(vp => vp.Value)
-                .ThenBy(myPac.MovesTo)
-                .FirstOrDefault();
-
-            if (nearestPellet is null)
+            if (pacsWithOutCommands.Any() == false)
             {
                 break;
             }
 
-            pacCommands.Add(new MoveCommand(myPac.Id, nearestPellet.GridX, nearestPellet.GridY));
+            var commandForPellet = IssueCommandForPellet(supperPellet, pacsWithOutCommands);
+            if (commandForPellet == null)
+            {
+                continue;
+            }
 
-            viablePellets.Remove(nearestPellet);
+            pacCommands.Add(commandForPellet);
+            pacsWithOutCommands = pacsWithOutCommands.Where(p => pacCommands.All(pc => pc.PacId != p.Id));
         }
 
-        Log(pacCommands);
+        // calculate commands for closest normal pellets
+        if (pacsWithOutCommands.Any())
+        {
+            var closestPellets = new List<Pellet>(VisiblePellets.Where(p => p.Value == 1));
+            foreach (var pac in pacsWithOutCommands)
+            {
+                var closestPellet = closestPellets
+                    .OrderBy(pac.MovesTo)
+                    .FirstOrDefault();
+
+                if (closestPellet is null)
+                {
+                    continue;
+                }
+
+                pacCommands.Add(new MoveCommand(pac, closestPellet));
+                closestPellets.Remove(closestPellet);
+            }
+        }
+
+        return pacCommands.OrderBy(c => c.PacId);
+    }
+
+    public ICommand? IssueCommandForPellet(Pellet pellet, IEnumerable<Pac> availablePacs)
+    {
+        if (availablePacs.Any() == false)
+        {
+            return null;
+        }
+
+        var closestPac = availablePacs
+            .OrderBy(p => p.MovesTo(pellet))
+            .First();
+
+        return new MoveCommand(closestPac, pellet);
+    }
+
+    public List<ICommand> IssueSpeedCommands(int turn, IEnumerable<Pac> pacsWithOutCommands)
+    {
+        var pacCommands = new List<ICommand>();
+
+        if (turn == 1)
+        {
+            foreach (var myPac in pacsWithOutCommands)
+            {
+                if (SpeedCommand.IsActionable(myPac) == false)
+                {
+                    continue;
+                }
+
+                pacCommands.Add(new SpeedCommand(myPac.Id));
+            }
+        }
 
         return pacCommands;
     }
@@ -212,7 +266,7 @@ public class Game
         return commandsAsIOSyntax;
     }
 
-    public IEnumerable<Pac> MyPacs => SearchPacs(p => p.IsMine && p.TypeId != "DEAD");
+    public IEnumerable<Pac> MyPacs => SearchPacs(p => p.IsMine && p.TypeId != AbilityType.DEAD);
 
     public IEnumerable<Pac> EnemyPacs => SearchPacs(p => p.IsMine == false);
 
@@ -221,19 +275,50 @@ public class Game
     public bool TryGetPac((int, bool) key, out Pac pac)
         => CurrentPacs.TryGetValue(key, out pac!);
 
+    public void LogTurn(int turnInfo)
+    {
+        if (turnInfo <= 1)
+        {
+            Log(CurrentTurn, LogType.Setup);
+            Log(CurrentPacs.Values, LogType.Setup);
+            Log(VisiblePellets, LogType.Setup);
+            return;
+        }
+
+        Log(CurrentTurn);
+        Log(CurrentPacs.Values);
+        Log(VisiblePellets);
+    }
+
     private void Log(IEnumerable<IPrintable> items)
+        => Log(items, null);
+
+    private void Log(IEnumerable<IPrintable> items, LogType? additionalLogType = null)
     {
         if (IsDebug == false)
         {
             return;
         }
 
-        items.ToList().ForEach(Log);
+        items.ToList().ForEach(i => Log(i, additionalLogType));
     }
 
     private void Log(IPrintable item)
+        => Log(item, null);
+
+    private void Log(IPrintable item, LogType? additionalLogType = null)
     {
-        if (IsDebug) item.Print(_gameIO);
+        var loggableTypes = item.LogType;
+
+        if (additionalLogType.HasValue)
+        {
+            loggableTypes = additionalLogType.Value | item.LogType;
+        }
+
+        if (IsDebug && (loggableTypes & EnabledLogs) != 0)
+        {
+            item.Print(IO);
+        }
     }
 }
 
@@ -243,24 +328,28 @@ public record Board(int Width, int Height) : IPrintable
 
     public List<string> Rows { get => _rows; }
 
+    public LogType LogType => LogType.Setup | LogType.Board;
+
     public void Print(IGameIO gameIO)
     {
-        gameIO.LogInfo($"Board is {Width} by {Height}.");
-        _rows.ForEach(r => gameIO.LogInfo(r));
+        gameIO.LogInfo($"Board is {Width} by {Height}.", LogType);
+        _rows.ForEach(r => gameIO.LogInfo(r, LogType));
     }
 }
 
 public record TurnInfo(int MyScore, int OpponentsScore, int VisiblePacCount) : IPrintable
 {
+    public LogType LogType => LogType.Turn;
+
     public void Print(IGameIO gameIO)
     {
-        gameIO.LogInfo(ToString());
+        gameIO.LogInfo(ToString(), LogType);
     }
 }
 
-public record Pac(int Id, bool IsMine, int GridX, int GridY, string TypeId, int TurnSpeed, int AbilityCoolDown)
+public record Pac(int Id, bool IsMine, int GridX, int GridY, AbilityType TypeId, int TurnSpeed, int AbilityCoolDown)
     : IPrintable, ILocatable
-{   
+{
     public (int Id, bool IsMine) AsKey => (Id, IsMine);
 
     private ILocatable? _currentPosition = null;
@@ -273,7 +362,7 @@ public record Pac(int Id, bool IsMine, int GridX, int GridY, string TypeId, int 
             _currentPosition = location;
             return;
         }
-        
+
         if (_currentPosition.GridX == location.GridX && _currentPosition.GridY == location.GridY)
         {
             _didNotMove = true;
@@ -292,25 +381,31 @@ public record Pac(int Id, bool IsMine, int GridX, int GridY, string TypeId, int 
         return Math.Abs(GridX - locationToMoveTo.GridX) + Math.Abs(GridY - locationToMoveTo.GridY);
     }
 
+    public LogType LogType => LogType.Pac;
+
     public void Print(IGameIO gameIO)
     {
-        gameIO.LogInfo(ToString());
+        gameIO.LogInfo(ToString(), LogType);
     }
 }
 
 public record Pellet(int GridX, int GridY, int Value) : IPrintable, ILocatable
 {
+    public LogType LogType => LogType.Pellet;
+
     public void Print(IGameIO gameIO)
     {
-        gameIO.LogInfo($"Pellet of value {Value} is located at {GridX} by {GridY}.");
+        gameIO.LogInfo($"Pellet of value {Value} is located at {GridX} by {GridY}.", LogType);
     }
 }
 
 public abstract record Command(string CommandType, int PacId) : ICommand
 {
+    public LogType LogType => LogType.Command;
+
     public void Print(IGameIO gameIO)
     {
-        gameIO.LogInfo(ToCommandSyntax());
+        gameIO.LogInfo(ToCommandSyntax(), LogType);
     }
 
     public abstract string ToCommandSyntax();
@@ -318,6 +413,10 @@ public abstract record Command(string CommandType, int PacId) : ICommand
 
 public record MoveCommand(int PacId, int GridX, int GridY) : Command("MOVE", PacId), ILocatable
 {
+    public MoveCommand(Pac pac, ILocatable location)
+        : this(pac.Id, location.GridX, location.GridY)
+    { }
+
     public override string ToCommandSyntax()
     {
         return $"{CommandType} {PacId} {GridX} {GridY}";
@@ -345,6 +444,8 @@ public record GridLocation(int GridX, int GridY) : ILocatable;
 
 public interface IPrintable
 {
+    LogType LogType { get; }
+
     void Print(IGameIO gameIO);
 }
 
@@ -354,7 +455,7 @@ public interface IGameIO
 
     void IssueInstruction(string instruction);
 
-    void LogInfo(string message);
+    void LogInfo(string message, LogType logType);
 }
 
 public interface ILocatable
@@ -375,11 +476,25 @@ public interface ICommand : IPrintable
 
 public class GameConsoleIO : IGameIO
 {
+    private readonly LogType _enabledLogs;
+
+    public GameConsoleIO(LogType enabledLogs)
+    {
+        _enabledLogs = enabledLogs;
+    }
+
     public void IssueInstruction(string instruction)
         => Console.WriteLine(instruction);
 
-    public void LogInfo(string message)
-     => Console.Error.WriteLine(message);
+    public void LogInfo(string message, LogType logType)
+    {
+        if ((_enabledLogs & logType) == 0)
+        {
+            return;
+        }
+
+        Console.Error.WriteLine(message);
+    }
 
     public string ReadInput()
         => Console.ReadLine()!;
@@ -394,7 +509,7 @@ public static class Empties
         => new(0, 0, 0);
 
     public static Pac CreateEmptyPac()
-        => new(0, true, 0, 0, "", 0, 0);
+        => new(0, true, 0, 0, AbilityType.NONE, 0, 0);
 
     public static Pellet CreateEmptyPellet()
         => new(0, 0, 0);
@@ -402,7 +517,22 @@ public static class Empties
 
 public enum AbilityType
 {
+    NONE,
     ROCK,
     SCISSORS,
-    PAPER
+    PAPER,
+    DEAD
+}
+
+[Flags]
+public enum LogType : int
+{
+    None = 0,
+    Setup = 1,
+    Board = 2,
+    Turn = 4,
+    Pac = 8,
+    Pellet = 16,
+    Command = 32,
+    All = Setup | Board | Turn | Pac | Pellet | Command,
 }
